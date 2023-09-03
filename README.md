@@ -28,7 +28,7 @@ In the first half of 2023, there were 1,240 bookings made, generating a revenue 
 The analysis did not identify any pronounced seasonality in the business. However, understanding potential peak times can guide strategies like staffing adjustments or promotional activities.
 
 # Conclusions & Recommendations
-Summary: The analysis provided valuable insights into the revenue streams of the earlylife ultrasound centre. The centre's services, especially early pregnancy scans, are significant revenue drivers. Large heartbeat bears lead in the product category, Early pregnancy scans lead in the service category, with prenatal harmony tests being an unexpected high-revenue generator.
+*Summary:* The analysis provided valuable insights into the revenue streams of the earlylife ultrasound centre. The centre's services, especially early pregnancy scans, are significant revenue drivers. Large heartbeat bears lead in the product category, Early pregnancy scans lead in the service category, with prenatal harmony tests being an unexpected high-revenue generator.
 
 # Recommendations:
 -	Focus promotional activities on top revenue-driving services/products to maximize returns.
