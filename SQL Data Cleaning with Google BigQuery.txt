@@ -1,0 +1,258 @@
+-- Always the first step before doing anything with data; it's to familiarize oneself with the dataset. This helps understand the structure, types of data present, and gives a glimpse of any glaring issues.
+SELECT *
+FROM early_life.Invoices_sales_and_refunds;
+
+-- Transactions with a unit price of 0 indicate bookings that were changed. Hence, they don't represent valid financial transactions.
+DELETE FROM early_life.Invoices_sales_and_refunds
+WHERE UnitPrice = 0;
+
+-- Inspect the variety of products in the Description column. Note: Bear Neckerchief and Bear Shirt discontinued
+SELECT Description
+FROM early_life.Invoices_sales_and_refunds
+
+--Checking Duplicate Values
+SELECT InvoiceIdSequential, description, UnitPrice, Type, InvoiceDate, COUNT(*)
+FROM early_life.Invoices_sales_and_refunds
+GROUP BY InvoiceIdSequential, description, UnitPrice, Type, InvoiceDate
+HAVING COUNT(*) > 1
+
+-- Reviewing Duplicate Values, they are actually not duplicates but the same thing purchased twice under exactly same conditions.
+SELECT * 
+FROM early_life.Invoices_sales_and_refunds
+WHERE 
+    (InvoiceIdSequential = 12062 AND description = 'Key Rings' AND UnitPrice = 5.83 AND Type = 'Product' AND InvoiceDate = '2020-02-29') OR
+    (InvoiceIdSequential = 17215 AND description = 'Key Rings' AND UnitPrice = 10.0 AND Type = 'Product' AND InvoiceDate = '2022-04-03') OR
+    (InvoiceIdSequential = 17215 AND description = 'Heartbeat Bears - Baby  Bear' AND UnitPrice = 20.0 AND Type = 'Product' AND InvoiceDate = '2022-04-03') OR
+    (InvoiceIdSequential = 10706 AND description = 'Heartbeat Bear - Super Soft Large Bear' AND UnitPrice = 22.73 AND Type = 'Product' AND InvoiceDate = '2019-09-25') OR
+    (InvoiceIdSequential = 19350 AND description = 'Heartbeat Bear - Super Soft Large Bear' AND UnitPrice = 28.0 AND Type = 'Product' AND InvoiceDate = '2022-09-24') OR
+    (InvoiceIdSequential = 13900 AND description = 'Heartbeat Bear - Super Soft Large Bear' AND UnitPrice = 23.33 AND Type = 'Product' AND InvoiceDate = '2020-12-18') OR
+    (InvoiceIdSequential = 14739 AND description = 'Heartbeat Bear - Super Soft Large Bear' AND UnitPrice = 23.33 AND Type = 'Product' AND InvoiceDate = '2021-05-01');
+
+-- The Description column in the dataset appears to be a combination of multiple pieces of information (like service/product name, staff name, location, date, etc.).
+-- Breaking down this single, compound column into distinct fields enables more granular analysis and easier querying in the future. It also improves data readability.
+-- Furthermore, by integrating a CASE statement into the extraction process, there's also a simultaneous cleanup of service names. This results in standardized service names, making analysis more consistent.
+-- Extract month and year from date columns to assist in seasonality detection.
+-- Then joining this data to the original dataset by primary key that is created whilst also ensuring product and service names are consistent (no spelling errors or duplicates).
+WITH ExtractedData AS (
+    SELECT 
+      ROW_NUMBER() OVER() AS pk,
+      description, 
+      InvoiceIdSequential, 
+      UnitPrice, 
+      Type,
+      InvoiceDate,
+      COALESCE(
+          CASE
+            WHEN REGEXP_EXTRACT(description, r'^(.*?) with') = 'Bronze Package' THEN 'Basic 4D Package'
+            WHEN REGEXP_EXTRACT(description, r'^(.*?) with') = 'Silver Package' THEN '3D & 4D Package'
+            WHEN REGEXP_EXTRACT(description, r'^(.*?) with') = 'Gold Package' THEN 'Luxury 3D/4D Package'                                          
+            WHEN REGEXP_EXTRACT(description, r'^(.*?) with') = 'Gender Plus Package' THEN 'Well-being & Gender Package'
+            WHEN REGEXP_EXTRACT(description, r'^(.*?) with') = 'Luxury 3D/4D package' THEN 'Luxury 3D/4D Package'
+            WHEN REGEXP_EXTRACT(description, r'^(.*?) with') = 'Pelvic Scan for Women ' THEN 'Pelvic Scan for Women'
+            ELSE REGEXP_EXTRACT(description, r'^(.*?) with')
+          END,
+          description
+      ) AS service_product,
+      REGEXP_EXTRACT(description, r'with (.*?) at') AS staff_name,
+      REGEXP_EXTRACT(description, r'at (.*?) on') AS location,
+      REGEXP_EXTRACT(description, r'on ((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat))') AS day_of_week,
+      REGEXP_EXTRACT(description, r'on (?:Sun|Mon|Tue|Wed|Thu|Fri|Sat), (\d{1,2}) ') AS day_of_month,
+      REGEXP_EXTRACT(description, r'on (?:Sun|Mon|Tue|Wed|Thu|Fri|Sat), \d{1,2} ((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)) ') AS month,
+      REGEXP_EXTRACT(description, r'on (?:Sun|Mon|Tue|Wed|Thu|Fri|Sat), \d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})') AS year,
+      REGEXP_EXTRACT(description, r'from (.*?) to') AS time_start,
+      REGEXP_EXTRACT(description, r'to (.*?)$') AS time_end
+    FROM early_life.Invoices_sales_and_refunds
+),
+
+OriginalWithPrimaryKey AS (
+    SELECT 
+      ROW_NUMBER() OVER() AS pk,
+      * 
+    FROM early_life.Invoices_sales_and_refunds
+)
+
+SELECT 
+  original.InvoiceIdSequential,
+  original.InvoiceDate,
+  original.CustomerName,
+  original.Type,
+  original.UnitPrice,
+  original.Quantity,
+  original.TaxAmount,
+  original.Amount,
+  extracted.service_product,
+  extracted.staff_name,
+  extracted.day_of_month,
+  extracted.month,
+  extracted.year,
+  extracted.time_start,
+  extracted.time_end
+FROM 
+  OriginalWithPrimaryKey AS original
+JOIN 
+  ExtractedData AS extracted
+ON 
+  original.pk = extracted.pk
+
+-- Extracted the month and year from the InvoiceDate column to use as a a query for further analysis.
+ WITH datesdata AS (
+  SELECT 
+    ROW_NUMBER() OVER() AS pk, 
+    InvoiceDate,
+    EXTRACT(MONTH FROM InvoiceDate) AS monthi,
+    EXTRACT(YEAR FROM InvoiceDate) AS yeari
+  FROM early_life.sandr_cleaned
+),
+OriginalWithPrimaryKey AS (
+  SELECT 
+    ROW_NUMBER() OVER() AS pk, 
+    * 
+  FROM early_life.sandr_cleaned
+)
+SELECT 
+  original.InvoiceIdSequential,
+  original.InvoiceDate,
+  original.CustomerName,
+  original.Type,
+  original.UnitPrice,
+  original.Quantity,
+  original.TaxAmount,
+  original.Amount,
+  original.service_product,
+  original.staff_name,
+  original.day_of_month,
+  original.month,
+  original.year,
+  original.time_start,
+  original.time_end,
+  extracted.monthi,
+  extracted.yeari
+FROM 
+  OriginalWithPrimaryKey AS original
+JOIN 
+  datesdata AS extracted
+ON 
+  original.pk = extracted.pk
+
+-- Further Cleaning, to Condense list of products, services, and add-ons to make measuring sales easier to analyse by categorising the data.
+UPDATE early_life.sales_and_refund_cleaned
+SET service_product = 
+  CASE 
+    WHEN service_product IN (
+      'Large Elephant heartbeat', 'Large Heartbeat Giraffe', 'Large Blue heartbeat Bunny', 'Large Brown heartbeat bear',
+      'Large Rhino heartbeat', 'Large Grey heart Bunny - grey nose', 'Large heartbeat Bunny - blue nose', 'Large brown heartbeat bear NO ribbon',
+      'Large Grey heartbeat Bunny - pink nose', 'Large Grey heartbeat Bear', 'Large Grey heartbeat Bunny - blue nose', 'Large white',
+      'Large Pink heartbeat bunny', 'Large Heartbeat Sloth', 'Large White heartbeat Bear', 'Large Brown Heart beat Bunny', 'Large Blue heartbeat bear',
+      'Large White heartbeat Bunny', 'Heartbeat Bear - Super Soft Large Bear'
+    ) THEN 'Large Heartbeat Bear'
+    WHEN service_product IN (
+      'Small Giraffe heartbeat', 'Small sloth heartbeat', 'Small Pink Bear', 'Small light brown bear', 'Small white bear',
+      'Small Grey bear', 'Small Blue bear', 'Heartbeat Bears - Baby  Bear'
+    ) THEN 'Small Heartbeat Bear'
+    WHEN service_product = 'PHLEBOTOMY & ADMIN' THEN 'Phlebotomy Appointment'
+    WHEN service_product IN (
+      'Follicle Stimulating Hormone', 'PROLACTIN', 'Thyroid Stimulating Hormone (TSH)'
+    ) THEN 'Phlebotomy Add-On'    
+    WHEN service_product = 'Growth measurements aswell as Rescan images' THEN 'Extra Pictures'    
+    WHEN service_product = 'Silver Package ' THEN '3D & 4D Package'
+    WHEN service_product IN ('Bronze', 'Bronze Package ') THEN 'Basic 4D Package'    
+    WHEN service_product IN ('well', 'Well Being Scan from 20:30 to 21:00', 'well being') THEN 'Well-Being Scan'   
+    WHEN service_product = '3D Gender Package ' THEN '3D Gender Package'   
+    WHEN service_product IN ('well being and Gender Scan', 'gender & well being scan') THEN 'Well-Being and Gender Scan'   
+    WHEN service_product IN (
+      'Deposit for Early Pregnancy Scan on Thu, 13 Apr 2023', 'Deposit for Basic 4D Package on Mon, 29 May 2023',
+      'Deposit for Early Pregnancy Scan', 'Deposit for Gender Reveal Surprise Package', 'Deposit for Prenatal Harmony Test & Early Scan',
+      'Deposit for Nifty non invasive prenatal testing  NIPT & Scan on Wed, 24 May 2023'
+    ) THEN 'Deposit No Appointment'   
+    WHEN service_product = 'Early Pregnancy Consultation With Consultant Obstetrician & Gynaecologist' THEN 'Early Pregnancy Consultation'  
+    WHEN service_product = 'Gynae Consultation With Consultant Obstetrician & Gynaecologist' THEN 'Gynae Consultation'  
+    ELSE service_product
+  END
+WHERE service_product IN (
+  'Large Elephant heartbeat', 'Large Heartbeat Giraffe', 'Large Blue heartbeat Bunny', 'Large Brown heartbeat bear', 
+  'Large Rhino heartbeat', 'Large Grey heart Bunny - grey nose', 'Large heartbeat Bunny - blue nose', 'Large brown heartbeat bear NO ribbon', 
+  'Large Grey heartbeat Bunny - pink nose', 'Large Grey heartbeat Bear', 'Large Grey heartbeat Bunny - blue nose', 'Large white', 
+  'Large Pink heartbeat bunny', 'Large Heartbeat Sloth', 'Large White heartbeat Bear', 'Large Brown Heart beat Bunny', 'Large Blue heartbeat bear', 
+  'Large White heartbeat Bunny', 'Heartbeat Bear - Super Soft Large Bear', 'Small Giraffe heartbeat', 'Small sloth heartbeat', 'Small Pink Bear', 
+  'Small light brown bear', 'Small white bear', 'Small Grey bear', 'Small Blue bear', 'Heartbeat Bears - Baby  Bear', 'PHLEBOTOMY & ADMIN', 
+  'Follicle Stimulating Hormone', 'PROLACTIN', 'Thyroid Stimulating Hormone (TSH)', 'Growth measurements aswell as Rescan images', 
+  'Silver Package ', 'Bronze', 'Bronze Package ', 'well', 'Well Being Scan from 20:30 to 21:00', '3D Gender Package ', 
+  'well being and Gender Scan', 'gender & well being scan', 'Deposit for Early Pregnancy Scan on Thu, 13 Apr 2023', 
+  'Deposit for Basic 4D Package on Mon, 29 May 2023', 'Deposit for Early Pregnancy Scan', 'Deposit for Gender Reveal Surprise Package', 
+  'Deposit for Prenatal Harmony Test & Early Scan', 'Deposit for Nifty non invasive prenatal testing  NIPT & Scan on Wed, 24 May 2023', 
+  'Early Pregnancy Consultation With Consultant Obstetrician & Gynaecologist', 'Gynae Consultation With Consultant Obstetrician & Gynaecologist', 'well being'
+);
+
+-- Checking the data to see if the product/service type is correct, I identified that there are some incorrect values for the products being sold, this needs cleaning.
+SELECT DISTINCT Type
+FROM early_life.sales_and_refund_cleaned
+
+
+-- Update to 'Service' type, so that services have just one category.
+UPDATE early_life.sales_and_refund_cleaned
+SET Type = 'Service'
+WHERE service_product IN (
+    'Redraw appt',
+    'Sneak Peek Clinical Blood Test',
+    'Well-being & Growth Scan',
+    'Prenatal Harmony Test & Early Scan',
+    'Luxury 3D/4D Package',
+    '3D & 4D Package',
+    'Basic 4D Package',
+    'Basic Gender Scan',
+    'Well-Being Scan',
+    'Early Pregnancy Scan',
+    'Well-being & Gender Plus Package',
+    'Well-Being and Gender Scan',
+    'Endometrial Lining and Follicle Tracking',
+    'Nifty non invasive prenatal testing  NIPT & Scan',
+    'Scan and Sneak Peek Clinical Package',
+    'Pre-Natal Harmony Test & Dating scan',
+    'Presentation Scan',
+    'Endometrial Lining Scan',
+    'Gender Reveal Surprise Package',
+    '3D Gender Package',
+    'Well-being & Gender Package',
+    'Phlebotomy Appointment',
+    'Gynae Consultation',
+    'Early Pregnancy Scan & Consultation',
+    'Pelvic Scan for Women',
+    'Early Pregnancy Consultation',
+    'Coil Removal',
+    'Prenatal Safe 5 NIPT'
+);
+
+-- Update to 'Product' type, so that products have one category.
+UPDATE early_life.sales_and_refund_cleaned
+SET Type = 'Product'
+WHERE service_product IN (
+    'Large Heartbeat Bear',
+    'Small Heartbeat Bear',
+    'Big Canon',
+    'Confetti Canon',
+    'Key Rings',
+    'Fridge Magnet',
+    'Bear Shirt',
+    'Bear Neckerchief',
+    'USB stick',
+    'Post and Packing',
+    'Gender Balloon',
+    'General/Misc'
+);
+
+-- Update to 'Add-On' type, so that add-ons have a category.
+UPDATE early_life.sales_and_refund_cleaned
+SET Type = 'Add-On'
+WHERE service_product IN (
+    'Phlebotomy Add-On',
+    'Harmony Test Add-On'
+);
+
+-- Update to 'Deposit' type, so that deposits but no shows have a category.
+UPDATE early_life.sales_and_refund_cleaned
+SET Type = 'Deposit'
+WHERE service_product = 'Deposit No Appointment';
+
+-- Data ready to analyse.
+SELECT *
+FROM early_life.sales_and_refund_cleaned
